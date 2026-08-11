@@ -4,7 +4,7 @@ import path from 'node:path'
 
 import { shallowClone } from './git.js'
 import { inspectTheme } from './inspect.js'
-import { renderImage, renderMock } from './render.js'
+import { renderComposite, renderImage, renderMock } from './render.js'
 
 /** Clone into a temp dir, run `fn(dir, sha)`, always clean up. */
 export async function withClone(repo, fn) {
@@ -34,12 +34,23 @@ export async function analyze(repo, { slug, thumbsDir = null } = {}) {
     const thumbs = {}
 
     if (thumbsDir && inspection.ok) {
-      await renderMock(inspection.palette, path.join(thumbsDir, `${slug}.webp`))
-      thumbs.mock = `thumbs/${slug}.webp`
+      const mockOut = path.join(thumbsDir, `${slug}.webp`)
+      const wallpaper = inspection.backgrounds[0]
 
-      if (inspection.backgrounds.length) {
+      // Prefer the simulated desktop over the flat colour study — it is what the
+      // theme actually looks like. Themes without a usable wallpaper still get
+      // the flat mock, so every card has a preview.
+      const composited = wallpaper
+        ? await renderComposite(path.join(dir, wallpaper), inspection.palette, mockOut)
+        : { error: 'no wallpaper' }
+
+      if (composited.error) await renderMock(inspection.palette, mockOut)
+      thumbs.mock = `thumbs/${slug}.webp`
+      thumbs.composited = !composited.error
+
+      if (wallpaper) {
         const out = path.join(thumbsDir, `${slug}-wall.webp`)
-        const result = await renderImage(path.join(dir, inspection.backgrounds[0]), out)
+        const result = await renderImage(path.join(dir, wallpaper), out)
         if (!result.error) thumbs.wallpaper = `thumbs/${slug}-wall.webp`
       }
 

@@ -31,7 +31,14 @@ const rect = (x, y, w, h, fill, { rx = 0, opacity = 1 } = {}) =>
 
 const round = (n) => Math.round(n * 100) / 100
 
-export function buildMockSvg(palette) {
+/**
+ * @param {object} palette
+ * @param {{overWallpaper?: boolean}} [options] When `overWallpaper` is set the
+ *   desktop layer is left transparent so the caller can composite this on top of
+ *   the theme's own wallpaper — which is what the theme actually looks like in
+ *   use, and half of what people are choosing between.
+ */
+export function buildMockSvg(palette, options = {}) {
   const c = (key) => palette[key] ?? palette.foreground
   const bg = palette.background
   const fg = palette.foreground
@@ -42,13 +49,19 @@ export function buildMockSvg(palette) {
   const paint = (fill, opacity) => (fill === 'fg' ? [fg, opacity ?? 1] : fill === 'fg-dim' ? [fg, 0.45] : [c(fill), opacity ?? 1])
 
   // --- desktop -----------------------------------------------------------
-  parts.push(
-    `<defs><linearGradient id="d" x1="0" y1="0" x2="0.4" y2="1">` +
-      `<stop offset="0" stop-color="${escape(surface)}"/>` +
-      `<stop offset="1" stop-color="${escape(bg)}"/>` +
-      `</linearGradient></defs>`,
-  )
-  parts.push(rect(0, 0, MOCK_WIDTH, MOCK_HEIGHT, 'url(#d)'))
+  if (options.overWallpaper) {
+    // A wash of the theme's own background ties the photo to the palette and
+    // stops a bright wallpaper from drowning out the chrome on top of it.
+    parts.push(rect(0, 0, MOCK_WIDTH, MOCK_HEIGHT, bg, { opacity: 0.26 }))
+  } else {
+    parts.push(
+      `<defs><linearGradient id="d" x1="0" y1="0" x2="0.4" y2="1">` +
+        `<stop offset="0" stop-color="${escape(surface)}"/>` +
+        `<stop offset="1" stop-color="${escape(bg)}"/>` +
+        `</linearGradient></defs>`,
+    )
+    parts.push(rect(0, 0, MOCK_WIDTH, MOCK_HEIGHT, 'url(#d)'))
+  }
 
   // --- waybar ------------------------------------------------------------
   const barH = 28

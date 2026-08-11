@@ -19,6 +19,38 @@ export async function renderMock(palette, outFile) {
   return { width: MOCK_WIDTH, height: MOCK_HEIGHT }
 }
 
+/**
+ * The same mock, composited over the theme's own wallpaper — a simulated desktop
+ * rather than a colour study. Identical chrome in every card keeps the grid
+ * comparable while the wallpaper carries what the theme actually feels like.
+ *
+ * Photos cost roughly ten times a flat mock in bytes, so quality is dialled back
+ * a little; at grid size the difference is invisible.
+ */
+export async function renderComposite(wallpaperFile, palette, outFile) {
+  await mkdir(path.dirname(outFile), { recursive: true })
+
+  try {
+    const base = await sharp(wallpaperFile, { limitInputPixels: 400_000_000 })
+      .rotate()
+      .resize(MOCK_WIDTH, MOCK_HEIGHT, { fit: 'cover', position: 'attention' })
+      .toBuffer()
+
+    const svg = Buffer.from(buildMockSvg(palette, { overWallpaper: true }))
+
+    await sharp(base)
+      .composite([{ input: svg, top: 0, left: 0 }])
+      .webp({ quality: 74, effort: 5 })
+      .toFile(outFile)
+
+    return { width: MOCK_WIDTH, height: MOCK_HEIGHT }
+  } catch (err) {
+    // An unreadable wallpaper shouldn't cost the theme its preview — the caller
+    // falls back to the flat mock.
+    return { error: err.message }
+  }
+}
+
 /** Downscale an arbitrary user image (wallpaper, screenshot) to a grid-sized thumb. */
 export async function renderImage(srcFile, outFile, { width = 640, height = 400 } = {}) {
   await mkdir(path.dirname(outFile), { recursive: true })

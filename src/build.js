@@ -98,6 +98,7 @@ async function main() {
       flags: inspection.flags,
       warnings: inspection.warnings,
       thumb: thumbs.mock ?? null,
+      thumb_composited: Boolean(thumbs.composited),
       wallpaper: thumbs.wallpaper ?? null,
       screenshot: thumbs.screenshot ?? null,
       ...fromMeta(meta),
