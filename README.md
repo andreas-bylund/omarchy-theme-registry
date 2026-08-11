@@ -165,9 +165,10 @@ you're building the whole registry.
 Two paths, same gate:
 
 1. **Someone opens a PR.** One line, bot validates, human merges.
-2. **The crawler proposes.** Weekly, it searches `topic:omarchy-theme`,
+2. **The crawler proposes.** Daily, it searches `topic:omarchy-theme`,
    `topic:omarchy-themes` and repos named `omarchy *theme*`, clones and validates
-   each candidate, and opens a single PR with everything that passed.
+   each candidate, and opens a single PR with everything that passed — at most 50
+   at a time, and only when the last proposal has been dealt with.
 
 The crawler exists because nobody submits to an empty registry. It proposes; it
 never vouches. Merging is always a human call.
