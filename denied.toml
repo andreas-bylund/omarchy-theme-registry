@@ -1,0 +1,20 @@
+# Repos the registry has looked at and turned down.
+#
+# Dropping a theme from a crawl PR rejects it exactly once. The crawler only
+# knows what is on main, so the next run rediscovers the repo and proposes it
+# again — and again, every run, with nobody remembering why it was dropped the
+# first time. This file is that memory.
+#
+# The crawler skips anything listed here, and a submission pointing at one fails
+# validation. Changed your mind? Delete the entry in the same PR that adds the
+# theme, so the reversal is as visible as the refusal was.
+
+[[denied]]
+repo = "https://github.com/hembramnishant50-glitch/omarchy-macchiato-core-theme"
+declined = "2026-08-11"
+reason = """\
+26 risk flags, and the content isn't the routine kind — mac-spoofer.sh, \
+tor_firefox_rotator.sh, shredder.sh, clamav-scanner.sh and wg-manager.sh, plus a \
+hyprlock.conf that both sources a config from outside the theme directory and \
+runs a shell command. A toolbelt wearing a theme's clothes.\
+"""
