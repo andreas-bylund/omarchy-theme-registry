@@ -67,7 +67,11 @@ jobs:
             echo "- thumbnails: $(ls dist/thumbs | wc -l)"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # enablement: true turns Pages on and points it at Actions by itself, so a
+      # fresh clone of this repo doesn't fail its first build on a settings toggle.
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       - uses: actions/upload-pages-artifact@v3
         with:
