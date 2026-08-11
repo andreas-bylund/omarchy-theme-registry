@@ -140,6 +140,7 @@ previews take care of themselves.
 
 ```
 themes/            one .toml per theme — the registry itself
+denied.toml        repos that were looked at and turned down, with reasons
 src/validate.js    PR gate: clone, inspect, render a report
 src/build.js       nightly: build index.json + thumbnails into dist/
 src/crawl.js       discovery: find themes on GitHub, propose them as a PR
@@ -173,6 +174,14 @@ The crawler exists because nobody submits to an empty registry. It proposes; it
 never vouches. Merging is always a human call.
 
 ## Design notes
+
+**Saying no has to be written down.** Dropping a theme from a crawl PR rejects it
+exactly once — the crawler only knows what is on `main`, so the next run
+rediscovers the repo and proposes it again, with nobody remembering why it was
+dropped. `denied.toml` is that memory: the crawler skips what's listed, and a
+submission pointing at one fails validation before it is even cloned. Every entry
+carries a reason, and reversing one means deleting it in the same PR that adds the
+theme — so a change of mind is as visible as the refusal was.
 
 **Slugs are first-come and unique.** Two themes deriving the same slug would
 clobber each other on disk — `omarchy-theme-install` `rm -rf`s the target

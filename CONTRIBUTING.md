@@ -55,6 +55,10 @@ Don't add `dark`/`light` — that's computed from your background's luminance.
 - `background` and `foreground` resolve to real hex colors.
 - The filename matches the derived slug.
 - No other entry points at the same repo.
+- The repo isn't in `denied.toml` — the list of repos the registry has already
+  looked at and turned down, each with a reason. If yours is on it and you've
+  since fixed what it says, remove the entry in the same PR and explain the fix;
+  a reviewer will read both.
 
 **Warnings** (surfaced to the reviewer, don't block):
 

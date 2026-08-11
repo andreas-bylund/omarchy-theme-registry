@@ -12,6 +12,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
 import { builtinCollisionWarning, builtinThemes } from './lib/builtins.js'
+import { declinedMessage, loadDenylist, normalizeRepo } from './lib/denylist.js'
 import { githubRepo } from './lib/slug.js'
 import { loadSubmissions, parseSubmission } from './lib/registry.js'
 import { analyze, mapLimit } from './lib/process.js'
@@ -27,7 +28,21 @@ async function main() {
     (a, i) => !a.startsWith('--') && !(reportIndex !== -1 && i === reportIndex + 1),
   )
 
-  const { entries, errors: registryErrors, warnings: registryWarnings } = await collect(files)
+  const { entries: submitted, errors: registryErrors, warnings: registryWarnings } = await collect(files)
+
+  // Filtered before anything is cloned: a declined repo shouldn't come back with
+  // a rendered palette and a tidy report, as if the only thing left were to
+  // press merge.
+  const { denied, errors: denylistErrors } = await loadDenylist('.')
+  registryErrors.push(...denylistErrors)
+
+  const entries = []
+  for (const entry of submitted) {
+    const decline = denied.get(normalizeRepo(entry.repo))
+    if (decline) registryErrors.push(`${entry.file}: ${declinedMessage(decline)}`)
+    else entries.push(entry)
+  }
+
   const errors = [...registryErrors]
 
   const builtins = await builtinThemes()

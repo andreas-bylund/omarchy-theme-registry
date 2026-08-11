@@ -14,6 +14,7 @@ import { writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
 import { builtinThemes } from './lib/builtins.js'
+import { loadDenylist, normalizeRepo } from './lib/denylist.js'
 import { searchRepos } from './lib/github.js'
 import { analyze, mapLimit } from './lib/process.js'
 import { loadSubmissions, submissionToml, THEMES_DIR } from './lib/registry.js'
@@ -39,7 +40,19 @@ async function main() {
   const known = new Set(entries.map((e) => e.slug))
   const knownRepos = new Set(entries.map((e) => e.repo.replace(/\.git$/, '').toLowerCase()))
 
-  console.log(`Registry has ${known.size} themes. Searching…`)
+  const { denied, errors: denylistErrors } = await loadDenylist('.')
+  if (denylistErrors.length) {
+    // A denylist that doesn't parse is worse than none: it silently stops
+    // protecting, and the crawler would happily re-propose everything on it.
+    console.error(denylistErrors.join('\n'))
+    process.exit(1)
+  }
+
+  console.log(
+    `Registry has ${known.size} themes` +
+      (denied.size ? `, ${denied.size} declined` : '') +
+      '. Searching…',
+  )
 
   // A query that runs out of rate limit shouldn't throw away the ones that
   // already succeeded — a partial crawl still produces a useful PR.
@@ -60,7 +73,7 @@ async function main() {
   }
 
   const candidates = []
-  const skipped = { known: 0, denied: 0, collision: 0 }
+  const skipped = { known: 0, filtered: 0, declined: 0, collision: 0 }
   const claimed = new Map() // slug -> the candidate holding it
 
   // Most-starred first, so a slug contested by two repos goes to the one people
@@ -69,11 +82,18 @@ async function main() {
 
   for (const repo of discovered) {
     if (DENY.some((re) => re.test(repo.name))) {
-      skipped.denied++
+      skipped.filtered++
       continue
     }
     if (knownRepos.has(repo.html_url.toLowerCase())) {
       skipped.known++
+      continue
+    }
+
+    const decline = denied.get(normalizeRepo(repo.html_url))
+    if (decline) {
+      console.log(`  ⊘ ${repo.full_name} — declined: ${decline.reason}`)
+      skipped.declined++
       continue
     }
 
@@ -99,7 +119,8 @@ async function main() {
 
   console.log(
     `\n${candidates.length} candidates (${skipped.known} already indexed, ` +
-      `${skipped.denied} filtered, ${skipped.collision} slug collisions)`,
+      `${skipped.filtered} filtered, ${skipped.declined} declined, ` +
+      `${skipped.collision} slug collisions)`,
   )
 
   const chosen = candidates.slice(0, limit === Infinity ? candidates.length : limit)
