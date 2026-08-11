@@ -118,6 +118,10 @@ async function main() {
 
   const index = {
     version: INDEX_VERSION,
+    // Published so clients can cache-bust thumbnails: paths are stable, so a
+    // renderer change would otherwise leave every client showing stale images
+    // out of its own HTTP cache.
+    render_version: RENDER_VERSION,
     generated_at: new Date().toISOString(),
     count: themes.length,
     themes,
@@ -209,10 +213,7 @@ async function saveCache(cacheDir, outDir, index) {
   await cp(path.join(outDir, 'thumbs'), path.join(cacheDir, 'thumbs'), { recursive: true })
   // render_version lives only in the cache — consumers key off `version`, and a
   // renderer bump is not a schema change.
-  await writeFile(
-    path.join(cacheDir, 'index.json'),
-    JSON.stringify({ ...index, render_version: RENDER_VERSION }),
-  )
+  await writeFile(path.join(cacheDir, 'index.json'), JSON.stringify(index))
 }
 
 main().catch((err) => {
