@@ -11,6 +11,7 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
+import { builtinCollisionWarning, builtinThemes } from './lib/builtins.js'
 import { githubRepo } from './lib/slug.js'
 import { loadSubmissions, parseSubmission } from './lib/registry.js'
 import { analyze, mapLimit } from './lib/process.js'
@@ -28,6 +29,13 @@ async function main() {
 
   const { entries, errors: registryErrors, warnings: registryWarnings } = await collect(files)
   const errors = [...registryErrors]
+
+  const builtins = await builtinThemes()
+  for (const entry of entries) {
+    if (builtins.has(entry.slug)) {
+      registryWarnings.push(`${entry.file}: ${builtinCollisionWarning(entry.slug)}`)
+    }
+  }
 
   if (!entries.length) {
     console.log(errors.length ? errors.join('\n') : 'Nothing to validate.')

@@ -57,9 +57,20 @@ jobs:
           git commit -m "crawl: add $count theme(s)"
           git push --force-with-lease origin "$branch"
 
-          gh pr create \
-            --title "crawl: add $count theme(s)" \
-            --body-file crawl-report.md \
-            --label crawl \
-            --base main --head "$branch" || \
-          gh pr edit "$branch" --body-file crawl-report.md
+          # Labels don't exist in a fresh repo, and gh pr create fails outright on
+          # an unknown one. Create them up front instead of losing the PR to it.
+          gh label create crawl --color 0e8a16 \
+            --description "Proposed by the theme crawler" --force
+          gh label create needs-review --color fbca04 \
+            --description "Ships exec directives or scripts — look before merging" --force
+
+          existing=$(gh pr list --head "$branch" --state open --json number --jq '.[0].number')
+          if [[ -n "$existing" ]]; then
+            gh pr edit "$existing" --body-file crawl-report.md
+          else
+            gh pr create \
+              --title "crawl: add $count theme(s)" \
+              --body-file crawl-report.md \
+              --label crawl \
+              --base main --head "$branch"
+          fi

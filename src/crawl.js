@@ -13,6 +13,7 @@
 import { writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
+import { builtinThemes } from './lib/builtins.js'
 import { searchRepos } from './lib/github.js'
 import { analyze, mapLimit } from './lib/process.js'
 import { loadSubmissions, submissionToml, THEMES_DIR } from './lib/registry.js'
@@ -128,9 +129,12 @@ async function main() {
     return
   }
 
+  const builtins = await builtinThemes()
+
   for (const { slug, repo, inspection } of accepted) {
     const tags = [inspection.mode]
     if (inspection.flags.length) tags.push('needs-review')
+    if (builtins.has(slug)) tags.push('shadows-builtin')
 
     await writeFile(
       path.join(THEMES_DIR, `${slug}.toml`),
@@ -145,8 +149,13 @@ async function main() {
       `Found ${accepted.length} new theme${accepted.length === 1 ? '' : 's'}.`,
       '',
       ...accepted.map(({ slug, repo, inspection }) => {
-        const flags = inspection.flags.length ? ` 🔍 ${inspection.flags.length} risk flag(s)` : ''
-        return `- **${slug}** — ${repo.html_url} (${inspection.mode}, ★${repo.stargazers_count})${flags}`
+        const notes = []
+        if (inspection.flags.length) notes.push(`🔍 ${inspection.flags.length} risk flag(s)`)
+        if (builtins.has(slug)) notes.push('⚠️ shadows a builtin Omarchy theme')
+        return (
+          `- **${slug}** — ${repo.html_url} (${inspection.mode}, ★${repo.stargazers_count})` +
+          (notes.length ? ` — ${notes.join(', ')}` : '')
+        )
       }),
       '',
       'Every entry was cloned and validated before being added. Reject anything that',

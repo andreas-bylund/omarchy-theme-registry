@@ -10,6 +10,7 @@
 import { access, cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
+import { builtinThemes } from './lib/builtins.js'
 import { remoteHead } from './lib/git.js'
 import { repoMeta } from './lib/github.js'
 import { analyze, mapLimit } from './lib/process.js'
@@ -32,6 +33,7 @@ async function main() {
   }
 
   const cached = await readCache(cacheDir)
+  const builtins = await builtinThemes()
   const thumbsDir = path.join(outDir, 'thumbs')
 
   await rm(outDir, { recursive: true, force: true })
@@ -57,7 +59,7 @@ async function main() {
       const restored = await restoreThumbs(previous, cacheDir, outDir)
       if (restored) {
         stats.reused++
-        return { ...previous, ...fromSubmission(entry), ...fromMeta(meta) }
+        return { ...previous, ...fromSubmission(entry, builtins), ...fromMeta(meta) }
       }
     }
 
@@ -83,7 +85,7 @@ async function main() {
     console.log(`  + ${entry.slug} (${inspection.mode}, ${inspection.overrides.length} overrides)`)
 
     return {
-      ...fromSubmission(entry),
+      ...fromSubmission(entry, builtins),
       commit: sha,
       palette: inspection.palette,
       palette_source: inspection.paletteSource,
@@ -121,10 +123,13 @@ async function main() {
   if (stats.failed) console.log('Failed themes are omitted from the index; see warnings above.')
 }
 
-function fromSubmission(entry) {
+function fromSubmission(entry, builtins) {
   return {
     slug: entry.slug,
     name: prettyName(entry.slug),
+    // Not a replacement: omarchy-theme-set overlays this theme's files on top of
+    // Omarchy's own, so the two silently merge.
+    shadows_builtin: builtins.has(entry.slug),
     repo: canonicalUrl(entry.repo),
     clone_url: entry.repo,
     install: `omarchy-theme-install ${entry.repo}`,

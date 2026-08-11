@@ -71,5 +71,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if grep -q 'Needs a human glance' report.md 2>/dev/null; then
+            gh label create needs-review --color fbca04 \
+              --description "Ships exec directives or scripts — look before merging" --force
             gh pr edit "${{ github.event.pull_request.number }}" --add-label needs-review
           fi
