@@ -1,0 +1,20 @@
+{
+  "name": "omarchy-theme-registry",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Community index of Omarchy themes, published as a static JSON feed.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "validate": "node src/validate.js",
+    "build": "node src/build.js --out dist --cache .cache",
+    "crawl": "node src/crawl.js",
+    "crawl:write": "node src/crawl.js --write"
+  },
+  "dependencies": {
+    "sharp": "^0.35.0",
+    "smol-toml": "^1.4.2"
+  }
+}

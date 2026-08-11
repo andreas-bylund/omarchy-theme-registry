@@ -1,0 +1,65 @@
+name: Crawl for new themes
+
+on:
+  schedule:
+    - cron: '0 6 * * 1' # Mondays
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: 'Max themes to add in one run'
+        type: string
+        default: '25'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: crawl
+  cancel-in-progress: false
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Crawl
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node src/crawl.js --write --limit "${{ inputs.limit || '25' }}"
+
+      - name: Open a PR for whatever it found
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [[ -z "$(git status --porcelain themes/)" ]]; then
+            echo "No new themes."
+            exit 0
+          fi
+
+          count=$(git status --porcelain themes/ | wc -l)
+          branch="crawl/$(date +%Y-%m-%d)"
+
+          git config user.name  'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git checkout -b "$branch"
+          git add themes/
+          git commit -m "crawl: add $count theme(s)"
+          git push --force-with-lease origin "$branch"
+
+          gh pr create \
+            --title "crawl: add $count theme(s)" \
+            --body-file crawl-report.md \
+            --label crawl \
+            --base main --head "$branch" || \
+          gh pr edit "$branch" --body-file crawl-report.md

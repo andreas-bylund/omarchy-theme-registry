@@ -1,0 +1,75 @@
+name: Validate submissions
+
+on:
+  pull_request:
+    paths:
+      - 'themes/**'
+      - 'src/**'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: validate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Collect changed submissions
+        id: changed
+        run: |
+          files=$(git diff --name-only --diff-filter=d \
+            "origin/${{ github.base_ref }}...HEAD" -- themes/ | tr '\n' ' ')
+          echo "files=$files" >> "$GITHUB_OUTPUT"
+          echo "Changed: ${files:-none}"
+
+      - name: Validate
+        id: validate
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node src/validate.js --report report.md ${{ steps.changed.outputs.files }}
+
+      # Everything below runs even when validation failed — that is exactly when
+      # the author most needs to see the report.
+      - name: Find the previous report
+        if: always()
+        id: find
+        uses: peter-evans/find-comment@v3
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: github-actions[bot]
+          body-includes: '## Theme validation'
+
+      - name: Post the report
+        if: always() && hashFiles('report.md') != ''
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-id: ${{ steps.find.outputs.comment-id }}
+          body-path: report.md
+          edit-mode: replace
+
+      - name: Label themes that need a closer look
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if grep -q 'Needs a human glance' report.md 2>/dev/null; then
+            gh pr edit "${{ github.event.pull_request.number }}" --add-label needs-review
+          fi
