@@ -2,13 +2,13 @@ name: Crawl for new themes
 
 on:
   schedule:
-    - cron: '0 6 * * 1' # Mondays
+    - cron: '0 6 * * *' # daily
   workflow_dispatch:
     inputs:
       limit:
         description: 'Max themes to add in one run'
         type: string
-        default: '25'
+        default: '50'
 
 permissions:
   contents: write
@@ -19,7 +19,33 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Daily means a crawl can land while the last one is still unreviewed. The
+  # crawler only knows about themes that are on main, so it would propose the
+  # same batch again in a second PR, every day, until the first one merges.
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Not filtered by label: the label may not exist yet in a fresh repo,
+          # and `gh pr list --label` fails outright on an unknown one.
+          open=$(gh pr list -R "$GITHUB_REPOSITORY" --state open \
+            --json number,headRefName \
+            --jq '[.[] | select(.headRefName | startswith("crawl/"))] | .[0].number')
+
+          if [[ -n "$open" && "$GITHUB_EVENT_NAME" == 'schedule' ]]; then
+            echo "PR #$open is still open — nothing to propose until it lands."
+            echo 'skip=true' >> "$GITHUB_OUTPUT"
+          fi
+
   crawl:
+    needs: gate
+    if: needs.gate.outputs.skip != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -36,7 +62,7 @@ jobs:
       - name: Crawl
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: node src/crawl.js --write --limit "${{ inputs.limit || '25' }}"
+        run: node src/crawl.js --write --limit "${{ inputs.limit || '50' }}"
 
       - name: Open a PR for whatever it found
         env:
