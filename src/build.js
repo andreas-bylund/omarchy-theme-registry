@@ -18,6 +18,15 @@ import { canonicalUrl, githubRepo } from './lib/slug.js'
 import { loadSubmissions } from './lib/registry.js'
 
 const INDEX_VERSION = 1
+
+/**
+ * Bump whenever thumbnails change appearance. Entries are otherwise cached on the
+ * theme's upstream commit alone, so a renderer change leaves every unchanged
+ * theme showing its old preview forever — which is exactly what happened when
+ * previews became wallpaper composites.
+ */
+const RENDER_VERSION = 2
+
 const CONCURRENCY = 6
 
 async function main() {
@@ -167,6 +176,10 @@ async function readCache(cacheDir) {
     const text = await readFile(path.join(cacheDir, 'index.json'), 'utf8')
     const parsed = JSON.parse(text)
     if (parsed.version !== INDEX_VERSION) return new Map()
+    if (parsed.render_version !== RENDER_VERSION) {
+      console.log('Renderer changed since the last build — rebuilding every preview.')
+      return new Map()
+    }
     return new Map(parsed.themes.map((t) => [t.slug, t]))
   } catch {
     return new Map()
@@ -194,7 +207,12 @@ async function saveCache(cacheDir, outDir, index) {
   await rm(cacheDir, { recursive: true, force: true })
   await mkdir(cacheDir, { recursive: true })
   await cp(path.join(outDir, 'thumbs'), path.join(cacheDir, 'thumbs'), { recursive: true })
-  await writeFile(path.join(cacheDir, 'index.json'), JSON.stringify(index))
+  // render_version lives only in the cache — consumers key off `version`, and a
+  // renderer bump is not a schema change.
+  await writeFile(
+    path.join(cacheDir, 'index.json'),
+    JSON.stringify({ ...index, render_version: RENDER_VERSION }),
+  )
 }
 
 main().catch((err) => {
