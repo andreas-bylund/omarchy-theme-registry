@@ -4,7 +4,7 @@ A community index of [Omarchy](https://omarchy.org) themes, published as a stati
 JSON feed. Add a theme with a one-line PR; a bot validates it, renders its palette,
 and the nightly build republishes the index.
 
-**Index:** `https://<user>.github.io/omarchy-theme-registry/index.json`
+**Index:** <https://andreas-bylund.github.io/omarchy-theme-registry/index.json>
 
 The registry is deliberately not an app. It's a feed — the desktop theme browser is
 one consumer, and any website or script is welcome to be another.
@@ -96,6 +96,46 @@ desktop for every theme, so a grid is actually comparable. `screenshot` is the
 author's own `preview.png` if they shipped one — better for a detail view, useless
 for a grid. `wallpaper` is the theme's first background image.
 
+## Used by
+
+**[omarchythemes.co](https://omarchythemes.co)** — a browsable gallery built on
+this feed. It reads `index.json` and turns it into search, filters (dark/light,
+tags, which apps a theme hand-tunes), sorting (stars, last updated, contrast,
+number of overrides), the palette preview, and a copyable
+`omarchy-theme-install` line per theme. Nothing about it is privileged — it reads
+exactly the file everyone else reads.
+
+Using the index somewhere? Open a PR adding it here.
+
+### Fetching it yourself
+
+```js
+const INDEX = 'https://andreas-bylund.github.io/omarchy-theme-registry/index.json'
+
+const registry = await fetch(INDEX).then((r) => r.json())
+
+const darkThemes = registry.themes
+  .filter((t) => t.mode === 'dark' && !t.archived)
+  .sort((a, b) => b.stars - a.stars)
+  .map((t) => ({
+    name: t.name,
+    install: t.install,
+    // Paths are relative to the index URL; render_version busts stale previews.
+    thumb: `${new URL(t.thumb, INDEX).href}?v=${registry.render_version}`,
+  }))
+```
+
+```bash
+curl -s https://andreas-bylund.github.io/omarchy-theme-registry/index.json \
+  | jq -r '.themes[] | select(.contrast > 7) | .install'
+```
+
+One caveat if you cache images: thumbnail paths are stable across re-renders, so
+a client that already fetched `thumbs/foo.webp` will keep serving its own copy
+after the registry republishes it. The top-level `render_version` changes whenever
+the renderer does — append it as a query string (`thumbs/foo.webp?v=3`) and stale
+previews take care of themselves.
+
 ## Repo layout
 
 ```
@@ -150,3 +190,11 @@ from the index.
 **Non-GitHub themes work.** Everything except stars, license and description comes
 from the clone, and `git ls-remote` is host-agnostic. GitHub metadata is
 enrichment, not a requirement.
+
+## License
+
+[MIT](LICENSE) — the registry code, the submission files and the published index
+alike. Build something on the feed; you don't need to ask.
+
+The themes it points at are other people's repos under their own licenses. The
+index reports each one's `license` field; it doesn't relicense anything.

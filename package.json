@@ -4,6 +4,16 @@
   "private": true,
   "type": "module",
   "description": "Community index of Omarchy themes, published as a static JSON feed.",
+  "license": "MIT",
+  "author": "Andreas Bylund",
+  "homepage": "https://omarchythemes.co",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/andreas-bylund/omarchy-theme-registry.git"
+  },
+  "bugs": {
+    "url": "https://github.com/andreas-bylund/omarchy-theme-registry/issues"
+  },
   "engines": {
     "node": ">=20"
   },

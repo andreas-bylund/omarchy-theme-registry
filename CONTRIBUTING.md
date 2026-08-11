@@ -89,3 +89,9 @@ users can find the themes someone actually sweated over.
 npm ci
 node src/validate.js themes/yourtheme.toml
 ```
+
+## Licensing
+
+Contributions to this repo — the `.toml` entry, code, docs — are MIT, same as the
+rest of it. Your theme repo keeps whatever license you gave it; submitting it here
+only adds a pointer to the index.
