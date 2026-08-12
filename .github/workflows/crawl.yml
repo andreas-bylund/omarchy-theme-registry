@@ -81,6 +81,14 @@ jobs:
           git checkout -b "$branch"
           git add themes/
           git commit -m "crawl: add $count theme(s)"
+
+          # A re-run of a crawl that already pushed finds the branch on the
+          # remote, but checkout only fetched main — with no origin/$branch to
+          # lease against, --force-with-lease refuses the push as "stale info"
+          # rather than doing anything. Fetch the branch when it exists so the
+          # lease has a baseline; the re-run then replaces its own commit.
+          git fetch --no-tags --depth=1 origin \
+            "+refs/heads/$branch:refs/remotes/origin/$branch" || true
           git push --force-with-lease origin "$branch"
 
           # Labels don't exist in a fresh repo, and gh pr create fails outright on
