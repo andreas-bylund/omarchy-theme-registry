@@ -21,7 +21,10 @@
     "validate": "node src/validate.js",
     "build": "node src/build.js --out dist --cache .cache",
     "crawl": "node src/crawl.js",
-    "crawl:write": "node src/crawl.js --write"
+    "crawl:write": "node src/crawl.js --write",
+    "health": "node src/health.js",
+    "health:write": "node src/health.js --write",
+    "test": "node --test src/lib/*.test.js"
   },
   "dependencies": {
     "sharp": "^0.35.0",

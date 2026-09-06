@@ -68,19 +68,27 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if [[ -z "$(git status --porcelain themes/)" ]]; then
+          if [[ -z "$(git status --porcelain themes/ denied.toml)" ]]; then
             echo "No new themes."
             exit 0
           fi
 
           count=$(git status --porcelain themes/ | wc -l)
+          denied=$(git status --porcelain denied.toml | wc -l)
           branch="crawl/$(date +%Y-%m-%d)"
 
           git config user.name  'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git checkout -b "$branch"
-          git add themes/
-          git commit -m "crawl: add $count theme(s)"
+          git add themes/ denied.toml
+          if [[ "$count" -gt 0 && "$denied" -gt 0 ]]; then
+            title="crawl: add $count theme(s), deny toolbelt(s)"
+          elif [[ "$count" -gt 0 ]]; then
+            title="crawl: add $count theme(s)"
+          else
+            title="crawl: deny toolbelt repo(s)"
+          fi
+          git commit -m "$title"
 
           # A re-run of a crawl that already pushed finds the branch on the
           # remote, but checkout only fetched main — with no origin/$branch to
@@ -103,7 +111,7 @@ jobs:
             gh pr edit "$existing" --body-file crawl-report.md
           else
             gh pr create \
-              --title "crawl: add $count theme(s)" \
+              --title "$title" \
               --body-file crawl-report.md \
               --label crawl \
               --base main --head "$branch"

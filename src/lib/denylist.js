@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
 import { parse as parseToml } from 'smol-toml'
@@ -82,6 +82,35 @@ export async function loadDenylist(root = '.') {
   }
 
   return { denied, errors }
+}
+
+export function formatDeniedEntry({ repo, reason, declined = null }) {
+  const date = declined ?? new Date().toISOString().slice(0, 10)
+  const wrapped = String(reason).replace(/\s+/g, ' ').trim()
+  return [
+    '[[denied]]',
+    `repo = "${repo}"`,
+    `declined = "${date}"`,
+    'reason = """\\',
+    `${wrapped}\\`,
+    '"""',
+    '',
+  ].join('\n')
+}
+
+/** Append entries to denied.toml, creating the file if needed. */
+export async function appendDenylist(root, entries) {
+  if (!entries.length) return
+  const file = path.join(root, DENYLIST_FILE)
+  let text = ''
+  try {
+    text = await readFile(file, 'utf8')
+  } catch (err) {
+    if (err.code !== 'ENOENT') throw err
+  }
+  if (text && !text.endsWith('\n')) text += '\n'
+  if (text) text += '\n'
+  await writeFile(file, text + entries.map(formatDeniedEntry).join('\n'))
 }
 
 /** The message a submission pointing at a declined repo should fail with. */

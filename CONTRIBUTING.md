@@ -69,6 +69,9 @@ Don't add `dark`/`light` — that's computed from your background's luminance.
 - No `backgrounds/` directory, no `LICENSE`.
 - The repo is archived upstream.
 
+The bot comment ends with a **Merge verdict**: safe to merge, needs a human
+glance, or do not merge. That is the last thing to read before pressing merge.
+
 **Risk flags** (labels the PR `needs-review`):
 
 Themes are arbitrary git repos, and a theme's `hyprland.conf` is sourced straight

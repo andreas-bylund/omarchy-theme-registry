@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { rm } from 'node:fs/promises'
 import { promisify } from 'node:util'
 
 const run = promisify(execFile)
@@ -26,12 +27,28 @@ export async function remoteHead(url) {
   return { sha, branch }
 }
 
-export async function shallowClone(url, dest) {
-  await run('git', ['clone', '--depth', '1', '--single-branch', '--quiet', url, dest], {
-    env: GIT_ENV,
-    timeout: 180_000,
-    maxBuffer: 16 * 1024 * 1024,
-  })
+export async function shallowClone(url, dest, { blobLimit = null } = {}) {
+  const attempt = async (useFilter) => {
+    const args = ['clone', '--depth', '1', '--single-branch', '--quiet']
+    if (useFilter && blobLimit) args.push(`--filter=blob:limit=${blobLimit}`)
+    args.push(url, dest)
+    await run('git', args, {
+      env: GIT_ENV,
+      timeout: 180_000,
+      maxBuffer: 16 * 1024 * 1024,
+    })
+  }
+
+  try {
+    await attempt(Boolean(blobLimit))
+  } catch (err) {
+    // Partial clone is a GitHub/GitLab thing. A host that doesn't speak
+    // `--filter` should still be inspectable — fall back to a full shallow clone.
+    if (!blobLimit) throw err
+    await rm(dest, { recursive: true, force: true })
+    await attempt(false)
+  }
+
   const { stdout } = await run('git', ['-C', dest, 'rev-parse', 'HEAD'], { env: GIT_ENV })
   return stdout.trim()
 }
