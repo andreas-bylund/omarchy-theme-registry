@@ -1,0 +1,131 @@
+name: Health-check indexed themes
+
+on:
+  schedule:
+    - cron: '30 4 * * *' # daily, after the nightly build
+  workflow_dispatch:
+    inputs:
+      inspect_all:
+        description: 'Re-clone every theme, not just ones whose HEAD moved'
+        type: boolean
+        default: false
+      write:
+        description: 'Open a PR dropping gone/broken themes'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: health
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          open=$(gh pr list -R "$GITHUB_REPOSITORY" --state open \
+            --json number,headRefName \
+            --jq '[.[] | select(.headRefName | startswith("health/"))] | .[0].number')
+
+          if [[ -n "$open" && "$GITHUB_EVENT_NAME" == 'schedule' ]]; then
+            echo "PR #$open is still open — nothing to drop until it lands."
+            echo 'skip=true' >> "$GITHUB_OUTPUT"
+          fi
+
+  health:
+    needs: gate
+    if: needs.gate.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Restore health cache
+        uses: actions/cache@v4
+        with:
+          path: .cache/health.json
+          key: registry-health-${{ github.run_id }}
+          restore-keys: registry-health-
+
+      - name: Check indexed themes still exist
+        id: check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          extra=""
+          if [[ "${{ inputs.inspect_all }}" == 'true' ]]; then
+            extra="--inspect-all"
+          fi
+          write=""
+          if [[ "$GITHUB_EVENT_NAME" == 'schedule' || "${{ inputs.write }}" == 'true' ]]; then
+            write="--write"
+          fi
+          # Exit 2 is the write-rail (looks like an outage). Report it, don't
+          # fail the job — emptying the registry is worse than a red check.
+          set +e
+          node src/health.js $write $extra
+          code=$?
+          set -e
+          echo "exit=$code" >> "$GITHUB_OUTPUT"
+          if [[ $code -ne 0 && $code -ne 2 ]]; then
+            exit $code
+          fi
+
+      - name: Summarize
+        if: always() && hashFiles('health-report.md') != ''
+        run: cat health-report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Open a PR for gone/broken themes
+        if: steps.check.outputs.exit == '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [[ -z "$(git status --porcelain themes/ denied.toml)" ]]; then
+            echo "Every indexed theme is still there."
+            exit 0
+          fi
+
+          branch="health/$(date +%Y-%m-%d)"
+
+          git config user.name  'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git checkout -b "$branch"
+          git add -A -- themes/ denied.toml
+          gone=$(git diff --cached --name-only -- themes/ | wc -l)
+          git commit -m "health: drop $gone gone/broken theme(s)"
+
+          git fetch --no-tags --depth=1 origin \
+            "+refs/heads/$branch:refs/remotes/origin/$branch" || true
+          git push --force-with-lease origin "$branch"
+
+          gh label create health --color 5319e7 \
+            --description "Indexed theme is gone or no longer a theme" --force
+
+          existing=$(gh pr list --head "$branch" --state open --json number --jq '.[0].number')
+          if [[ -n "$existing" ]]; then
+            gh pr edit "$existing" --body-file health-report.md
+          else
+            gh pr create \
+              --title "health: drop $gone gone/broken theme(s)" \
+              --body-file health-report.md \
+              --label health \
+              --base main --head "$branch"
+          fi

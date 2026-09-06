@@ -3,4 +3,5 @@ dist/
 .cache/
 report.md
 crawl-report.md
+health-report.md
 *.log

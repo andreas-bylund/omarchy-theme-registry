@@ -29,7 +29,10 @@ export async function analyze(repo, { slug, thumbsDir = null } = {}) {
   const dir = await mkdtemp(path.join(tmpdir(), 'omarchy-theme-'))
 
   try {
-    const sha = await shallowClone(repo, dir)
+    // Validate/crawl/health don't render wallpapers — skip blobs bigger than
+    // 256k so a theme with 40MB of backgrounds doesn't dominate the clone.
+    // The build path (thumbsDir set) still needs those images.
+    const sha = await shallowClone(repo, dir, { blobLimit: thumbsDir ? null : '256k' })
     const inspection = await inspectTheme(dir)
     const thumbs = {}
 

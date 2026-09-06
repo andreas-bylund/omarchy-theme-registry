@@ -14,11 +14,12 @@ import { writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
 import { builtinThemes } from './lib/builtins.js'
-import { loadDenylist, normalizeRepo } from './lib/denylist.js'
-import { searchRepos } from './lib/github.js'
+import { appendDenylist, loadDenylist, normalizeRepo } from './lib/denylist.js'
+import { repoHasPalette, searchRepos } from './lib/github.js'
 import { analyze, mapLimit } from './lib/process.js'
 import { loadSubmissions, submissionToml, THEMES_DIR } from './lib/registry.js'
-import { repoSlug } from './lib/slug.js'
+import { githubRepo, repoSlug } from './lib/slug.js'
+import { looksLikeToolbelt, renderVerdict, summarize } from './lib/verdict.js'
 
 const QUERIES = [
   'topic:omarchy-theme',
@@ -125,15 +126,40 @@ async function main() {
 
   const chosen = candidates.slice(0, limit === Infinity ? candidates.length : limit)
   const accepted = []
+  const toolbelts = []
+  const skippedNoPalette = []
 
   const checked = await mapLimit(chosen, CONCURRENCY, async ({ slug, repo }) => {
+    const gh = githubRepo(repo.html_url)
+    if (gh) {
+      const hasPalette = await repoHasPalette(gh.owner, gh.repo).catch(() => true)
+      if (!hasPalette) {
+        return {
+          slug,
+          repo,
+          inspection: {
+            ok: false,
+            errors: ['No colors.toml or alacritty.toml on GitHub — not cloned.'],
+            warnings: [],
+            flags: [],
+          },
+          probed: true,
+        }
+      }
+    }
     const { inspection } = await analyze(repo.html_url, { slug })
     return { slug, repo, inspection }
   })
 
-  for (const { slug, repo, inspection } of checked) {
+  for (const { slug, repo, inspection, probed } of checked) {
     if (!inspection.ok) {
+      if (probed) skippedNoPalette.push({ slug, repo })
       console.log(`  ✗ ${slug} — ${inspection.errors.join(' ')}`)
+      continue
+    }
+    if (looksLikeToolbelt(inspection)) {
+      console.log(`  ⊘ ${slug} — toolbelt, not a theme (${inspection.flags.length} risk flags)`)
+      toolbelts.push({ slug, repo, inspection })
       continue
     }
     console.log(
@@ -143,14 +169,21 @@ async function main() {
     accepted.push({ slug, repo, inspection })
   }
 
-  console.log(`\n${accepted.length} of ${chosen.length} candidates are valid themes.`)
+  console.log(
+    `\n${accepted.length} of ${chosen.length} candidates are valid themes` +
+      (toolbelts.length ? `, ${toolbelts.length} toolbelt(s) refused` : '') +
+      (skippedNoPalette.length ? `, ${skippedNoPalette.length} had no palette` : '') +
+      '.',
+  )
+
+  const builtins = await builtinThemes()
+  const report = crawlReport({ accepted, toolbelts, skippedNoPalette, builtins })
 
   if (!write) {
+    console.log('\n' + report)
     console.log('Dry run — pass --write to create submission files.')
     return
   }
-
-  const builtins = await builtinThemes()
 
   for (const { slug, repo, inspection } of accepted) {
     const tags = [inspection.mode]
@@ -163,28 +196,117 @@ async function main() {
     )
   }
 
+  if (toolbelts.length) {
+    await appendDenylist(
+      '.',
+      toolbelts.map(({ repo, inspection }) => ({
+        repo: repo.html_url,
+        reason:
+          `Crawler refused: looks like a toolbelt, not a theme ` +
+          `(${inspection.flags.length} risk flag(s)` +
+          (inspection.flags.some((f) => /suspicious filename/i.test(f.note))
+            ? ', suspicious filenames'
+            : '') +
+          '). Remove this entry to reconsider.',
+      })),
+    )
+  }
+
   // Consumed by the workflow to build the PR body.
-  await writeFile(
-    'crawl-report.md',
-    [
-      `Found ${accepted.length} new theme${accepted.length === 1 ? '' : 's'}.`,
-      '',
-      ...accepted.map(({ slug, repo, inspection }) => {
-        const notes = []
-        if (inspection.flags.length) notes.push(`🔍 ${inspection.flags.length} risk flag(s)`)
-        if (builtins.has(slug)) notes.push('⚠️ shadows a builtin Omarchy theme')
-        return (
-          `- **${slug}** — ${repo.html_url} (${inspection.mode}, ★${repo.stargazers_count})` +
-          (notes.length ? ` — ${notes.join(', ')}` : '')
-        )
-      }),
-      '',
-      'Every entry was cloned and validated before being added. Reject anything that',
-      'looks off — the crawler only proposes.',
-    ].join('\n'),
+  await writeFile('crawl-report.md', report)
+
+  console.log(
+    `Wrote ${accepted.length} submission file(s)` +
+      (toolbelts.length ? `, denied ${toolbelts.length} toolbelt(s)` : '') +
+      ' + crawl-report.md',
+  )
+}
+
+function asVerdictResult({ slug, repo, inspection }) {
+  return {
+    entry: { slug, repo: repo.html_url },
+    inspection,
+    meta: {
+      stars: repo.stargazers_count ?? 0,
+      archived: Boolean(repo.archived),
+      license: repo.license?.spdx_id ?? null,
+    },
+  }
+}
+
+function crawlReport({ accepted, toolbelts, skippedNoPalette, builtins }) {
+  const summary = summarize({ results: accepted.map(asVerdictResult) })
+  const lines = []
+
+  lines.push(
+    `Found **${accepted.length}** new theme${accepted.length === 1 ? '' : 's'}` +
+      (summary.counts.review ? ` — **${summary.counts.review}** need a glance` : '') +
+      (toolbelts.length ? ` · ${toolbelts.length} toolbelt(s) sent to \`denied.toml\`` : '') +
+      '.',
+    '',
   )
 
-  console.log(`Wrote ${accepted.length} submission files + crawl-report.md`)
+  const bullet = (result) => {
+    const { entry, inspection, meta } = result
+    const notes = []
+    if (inspection.flags.length) {
+      const high = inspection.flags.filter((f) => f.severity === 'high').length
+      const medium = inspection.flags.filter((f) => f.severity === 'medium').length
+      notes.push(
+        `🔍 ${inspection.flags.length} risk flag(s)` +
+          (high || medium ? ` (${high} high, ${medium} medium)` : ''),
+      )
+    }
+    if (builtins.has(entry.slug)) notes.push('⚠️ shadows a builtin Omarchy theme')
+    return (
+      `- **${entry.slug}** — ${entry.repo} (${inspection.mode}, ★${meta.stars})` +
+      (notes.length ? ` — ${notes.join(', ')}` : '')
+    )
+  }
+
+  if (summary.review.length) {
+    lines.push(`### Needs a human glance (${summary.review.length})`, '')
+    lines.push(...summary.review.map(bullet), '')
+  }
+  if (summary.clean.length) {
+    lines.push(`### Clean (${summary.clean.length})`, '')
+    lines.push(...summary.clean.map(bullet), '')
+  }
+
+  if (toolbelts.length) {
+    lines.push(`### Refused as not-a-theme (${toolbelts.length})`, '')
+    lines.push(
+      'These cloned and had a palette, but they look like a toolbelt wearing a theme\'s clothes. ' +
+        'They are appended to `denied.toml` in this PR rather than `themes/` — drop the denylist ' +
+        'entry if that call is wrong.',
+      '',
+    )
+    for (const { slug, repo, inspection } of toolbelts) {
+      lines.push(
+        `- **${slug}** — ${repo.html_url} (${inspection.flags.length} risk flags)`,
+      )
+    }
+    lines.push('')
+  }
+
+  if (skippedNoPalette.length) {
+    lines.push(
+      `<details><summary>${skippedNoPalette.length} candidate(s) skipped — no palette file on GitHub</summary>`,
+      '',
+      ...skippedNoPalette.map(({ slug, repo }) => `- ${slug} — ${repo.html_url}`),
+      '',
+      '</details>',
+      '',
+    )
+  }
+
+  lines.push(
+    'Every `themes/` entry was cloned and validated before being added. The crawler proposes; ' +
+      'it does not vouch. Reject anything that looks off.',
+    '',
+  )
+  lines.push(renderVerdict(summary))
+  return lines.join('\n')
 }
 
 function argValue(argv, flag) {

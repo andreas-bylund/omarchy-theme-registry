@@ -61,6 +61,19 @@ export async function repoMeta(owner, repo) {
   }
 }
 
+/**
+ * Cheap pre-clone probe: does this GitHub repo even have a palette file?
+ * Saves cloning a wallpaper-heavy repo that isn't a theme.
+ */
+export async function repoHasPalette(owner, repo) {
+  const colors = await api(`/repos/${owner}/${repo}/contents/colors.toml`, { tolerate404: true })
+  if (colors) return true
+  const alacritty = await api(`/repos/${owner}/${repo}/contents/alacritty.toml`, {
+    tolerate404: true,
+  })
+  return Boolean(alacritty)
+}
+
 /** Paginated repository search, used by the crawler to seed the registry. */
 export async function searchRepos(query, { maxPages = 10 } = {}) {
   const found = []

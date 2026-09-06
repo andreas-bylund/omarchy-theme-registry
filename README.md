@@ -141,9 +141,10 @@ previews take care of themselves.
 ```
 themes/            one .toml per theme — the registry itself
 denied.toml        repos that were looked at and turned down, with reasons
-src/validate.js    PR gate: clone, inspect, render a report
+src/validate.js    PR gate: clone, inspect, render a report + merge verdict
 src/build.js       nightly: build index.json + thumbnails into dist/
 src/crawl.js       discovery: find themes on GitHub, propose them as a PR
+src/health.js      nightly: are indexed repos still there, and still themes?
 src/lib/           palette extraction, slug rules, mock renderer
 ```
 
@@ -156,6 +157,7 @@ npm run validate                        # check every submission
 node src/validate.js themes/foo.toml    # check one
 npm run build                           # write dist/index.json + dist/thumbs/
 npm run crawl                           # dry-run discovery
+npm run health                          # re-check indexed repos still exist
 ```
 
 `GITHUB_TOKEN` is optional locally but raises the API rate limit a lot — set it if
@@ -172,7 +174,12 @@ Two paths, same gate:
    at a time, and only when the last proposal has been dealt with.
 
 The crawler exists because nobody submits to an empty registry. It proposes; it
-never vouches. Merging is always a human call.
+never vouches. Merging is always a human call. Each proposal PR ends with a
+merge verdict: safe, needs a glance at exec/scripts, or do not merge.
+
+A third job re-checks what is already on `main`. A GitHub 404, or a repo that
+no longer parses as a theme, opens a health PR to drop it. A flaky host is
+still `"unreachable"` and stays — same as the nightly build.
 
 ## Design notes
 

@@ -17,8 +17,9 @@ import { githubRepo } from './lib/slug.js'
 import { loadSubmissions, parseSubmission } from './lib/registry.js'
 import { analyze, mapLimit } from './lib/process.js'
 import { repoMeta } from './lib/github.js'
+import { flagSeverity, renderStatusLine, renderVerdict, summarize } from './lib/verdict.js'
 
-const CONCURRENCY = 4
+const CONCURRENCY = 6
 
 async function main() {
   const argv = process.argv.slice(2)
@@ -119,8 +120,16 @@ const chip = (hex, size = 26) => {
   return `![${hex}](https://placehold.co/${size}x${size}/${c}/${c}.png)`
 }
 
+// GitHub issue-comment cap is 65536. A full card with palette chips is ~1.6k
+// per theme; 50 of those blows the cap and the bot silently fails to post.
+const GITHUB_COMMENT_MAX = 64_000
+const FULL_CARD_LIMIT = 12
+
 function report(results, registryErrors, registryWarnings = []) {
-  const lines = ['## Theme validation', '']
+  const summary = summarize({ results, registryErrors })
+  const compact = results.length > FULL_CARD_LIMIT
+
+  const lines = ['## Theme validation', '', renderStatusLine(summary), '']
 
   if (registryErrors.length || registryWarnings.length) {
     lines.push('### Submission format', '')
@@ -129,61 +138,113 @@ function report(results, registryErrors, registryWarnings = []) {
     lines.push('')
   }
 
-  for (const { entry, sha, inspection, meta } of results) {
-    const status = inspection.ok ? (inspection.warnings.length ? '⚠️' : '✅') : '❌'
-    lines.push(`### ${status} \`${entry.slug}\``, '')
-    lines.push(`**Repo:** ${entry.repo}`)
-    if (sha) lines.push(`**Commit:** \`${sha.slice(0, 8)}\``)
-    if (meta) {
-      lines.push(`**Stars:** ${meta.stars} · **License:** ${meta.license ?? 'none detected'}`)
-      if (meta.archived) lines.push('**Archived upstream** — consider whether it belongs in the registry.')
-    } else {
-      lines.push('_GitHub metadata unavailable for this run._')
-    }
-    lines.push('')
+  const sections = [
+    [summary.failed, 'Failed — not a theme'],
+    [summary.review, 'Needs a human glance'],
+    [summary.clean, 'Clean'],
+  ]
 
-    if (!inspection.ok) {
-      for (const e of inspection.errors) lines.push(`- ❌ ${e}`)
+  for (const [group, title] of sections) {
+    if (!group.length) continue
+    lines.push(`### ${title}`, '')
+    const expand = group === summary.clean && compact ? false : true
+    if (!expand) {
+      lines.push(
+        '| Slug | Mode | Contrast | ★ | Notes |',
+        '| --- | --- | ---: | ---: | --- |',
+      )
+      for (const row of group) lines.push(compactRow(row))
       lines.push('')
       continue
     }
-
-    lines.push(
-      `Palette from \`${inspection.paletteSource}\` · **${inspection.mode}** · ` +
-        `contrast ${inspection.contrast}:1 · ${inspection.backgrounds.length} wallpaper(s)`,
-      '',
-    )
-
-    lines.push(
-      [inspection.palette.background, inspection.palette.foreground, inspection.palette.accent]
-        .map((c) => chip(c, 34))
-        .join(' ') + '  ',
-    )
-    lines.push(
-      Array.from({ length: 16 }, (_, i) => chip(inspection.palette[`color${i}`])).join(' '),
-      '',
-    )
-
-    lines.push(
-      inspection.overrides.length
-        ? `**Hand-tuned overrides:** ${inspection.overrides.join(', ')}`
-        : '**Hand-tuned overrides:** none — fully template-driven from the palette.',
-      '',
-    )
-
-    for (const w of inspection.warnings) lines.push(`- ⚠️ ${w}`)
-
-    if (inspection.flags.length) {
-      lines.push('', '<details><summary>🔍 Needs a human glance</summary>', '')
-      for (const { file, note } of inspection.flags) lines.push(`- \`${file}\` ${note}`)
-      lines.push('', '</details>')
-    }
-
-    lines.push('')
+    for (const row of group) lines.push(...themeCard(row))
   }
 
-  lines.push('---', '', '_Rendered previews land on the registry site once merged._')
-  return lines.join('\n')
+  lines.push(renderVerdict(summary))
+  lines.push('', '_Rendered previews land on the registry site once merged._')
+
+  let text = lines.join('\n')
+  if (text.length > GITHUB_COMMENT_MAX) {
+    // Last resort: drop palette chips so the verdict still lands.
+    text = text
+      .split('\n')
+      .filter((line) => !line.includes('placehold.co'))
+      .join('\n')
+  }
+  return text
+}
+
+function compactRow({ entry, inspection, meta }) {
+  const notes = []
+  if (!inspection.ok) notes.push('failed')
+  else {
+    if (inspection.flags?.length) notes.push(`${inspection.flags.length} flag(s)`)
+    if (inspection.warnings?.length) notes.push(`${inspection.warnings.length} warning(s)`)
+  }
+  const mode = inspection.mode ?? '—'
+  const contrast = inspection.contrast != null ? String(inspection.contrast) : '—'
+  const stars = meta?.stars ?? '—'
+  return `| \`${entry.slug}\` | ${mode} | ${contrast} | ${stars} | ${notes.join(', ') || '—'} |`
+}
+
+function themeCard({ entry, sha, inspection, meta }) {
+  const lines = []
+  const status = inspection.ok ? (inspection.warnings.length || inspection.flags.length ? '⚠️' : '✅') : '❌'
+  lines.push(`#### ${status} \`${entry.slug}\``, '')
+  lines.push(`**Repo:** ${entry.repo}`)
+  if (sha) lines.push(`**Commit:** \`${sha.slice(0, 8)}\``)
+  if (meta) {
+    lines.push(`**Stars:** ${meta.stars} · **License:** ${meta.license ?? 'none detected'}`)
+    if (meta.archived) lines.push('**Archived upstream** — consider whether it belongs in the registry.')
+  } else {
+    lines.push('_GitHub metadata unavailable for this run._')
+  }
+  lines.push('')
+
+  if (!inspection.ok) {
+    for (const e of inspection.errors) lines.push(`- ❌ ${e}`)
+    lines.push('')
+    return lines
+  }
+
+  lines.push(
+    `Palette from \`${inspection.paletteSource}\` · **${inspection.mode}** · ` +
+      `contrast ${inspection.contrast}:1 · ${inspection.backgrounds.length} wallpaper(s)`,
+    '',
+  )
+
+  lines.push(
+    [inspection.palette.background, inspection.palette.foreground, inspection.palette.accent]
+      .map((c) => chip(c, 34))
+      .join(' ') + '  ',
+  )
+  lines.push(
+    Array.from({ length: 16 }, (_, i) => chip(inspection.palette[`color${i}`])).join(' '),
+    '',
+  )
+
+  lines.push(
+    inspection.overrides.length
+      ? `**Hand-tuned overrides:** ${inspection.overrides.join(', ')}`
+      : '**Hand-tuned overrides:** none — fully template-driven from the palette.',
+    '',
+  )
+
+  for (const w of inspection.warnings) lines.push(`- ⚠️ ${w}`)
+
+  if (inspection.flags.length) {
+    const serious = inspection.flags.some((f) => flagSeverity(f) !== 'low')
+    const summary = serious ? '🔍 Needs a human glance' : 'Benign notes (hyprlock clocks / test scripts)'
+    lines.push('', `<details><summary>${summary}</summary>`, '')
+    for (const { file, note, severity } of inspection.flags) {
+      const tag = severity && severity !== 'medium' ? ` (${severity})` : ''
+      lines.push(`- \`${file}\` ${note}${tag}`)
+    }
+    lines.push('', '</details>')
+  }
+
+  lines.push('')
+  return lines
 }
 
 main().catch((err) => {
