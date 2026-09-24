@@ -18,3 +18,10 @@ tor_firefox_rotator.sh, shredder.sh, clamav-scanner.sh and wg-manager.sh, plus a
 hyprlock.conf that both sources a config from outside the theme directory and \
 runs a shell command. A toolbelt wearing a theme's clothes.\
 """
+
+[[denied]]
+repo = "https://github.com/VECTORG99/omarchy-frutiger-aero"
+declined = "2026-09-12"
+reason = """\
+No longer a valid Omarchy theme: repo now looks like a toolbelt, not a theme. Remove this entry to reconsider.\
+"""
