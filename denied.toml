@@ -32,3 +32,17 @@ declined = "2026-09-25"
 reason = """\
 Crawler refused: looks like a toolbelt, not a theme (22 risk flag(s)). Remove this entry to reconsider.\
 """
+
+[[denied]]
+repo = "https://github.com/hembramnishant50-glitch/omarchy-coppernight-theme"
+declined = "2026-09-27"
+reason = """\
+No longer a valid Omarchy theme: repo now looks like a toolbelt, not a theme. Remove this entry to reconsider.\
+"""
+
+[[denied]]
+repo = "https://github.com/hembramnishant50-glitch/omarchy-lavender-theme"
+declined = "2026-09-27"
+reason = """\
+No longer a valid Omarchy theme: repo now looks like a toolbelt, not a theme. Remove this entry to reconsider.\
+"""
